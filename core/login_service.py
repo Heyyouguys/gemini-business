@@ -145,22 +145,43 @@ class LoginService:
         driver = None
         try:
             logger.info(f"🔄 开始刷新登录: {email}")
-            
-            # 配置 Chrome 选项（增加稳定性，减少崩溃）
+
+            # 配置 Chrome 选项（增加稳定性，减少崩溃，反检测）
             options = uc.ChromeOptions()
+
+            # 基础稳定性参数
             options.add_argument('--no-sandbox')
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--disable-gpu')
             options.add_argument('--disable-software-rasterizer')
             options.add_argument('--disable-extensions')
             options.add_argument('--window-size=1920,1080')
-            # 增加内存限制，避免崩溃
+            options.add_argument('--start-maximized')
+
+            # 内存优化
             options.add_argument('--js-flags=--max-old-space-size=512')
-            # 禁用一些可能导致崩溃的特性
             options.add_argument('--disable-background-networking')
             options.add_argument('--disable-default-apps')
             options.add_argument('--disable-sync')
-            
+            options.add_argument('--disable-translate')
+            options.add_argument('--disable-background-timer-throttling')
+            options.add_argument('--disable-backgrounding-occluded-windows')
+            options.add_argument('--disable-renderer-backgrounding')
+
+            # 反检测参数
+            options.add_argument('--disable-blink-features=AutomationControlled')
+            options.add_argument('--disable-infobars')
+            options.add_argument('--disable-popup-blocking')
+            options.add_argument('--ignore-certificate-errors')
+            options.add_argument('--allow-running-insecure-content')
+
+            # 模拟真实用户
+            options.add_argument('--lang=zh-CN')
+            options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36')
+
+            # 页面加载策略：eager 模式，DOM 加载完成即可，不等待所有资源
+            options.page_load_strategy = 'eager'
+
             # 指定Chrome二进制路径
             chrome_binary = os.environ.get('CHROME_BIN', '/usr/bin/google-chrome-stable')
             if os.path.exists(chrome_binary):
@@ -171,13 +192,29 @@ class LoginService:
                 logger.debug(f"[CHROME] 使用备用Chrome路径: /usr/bin/google-chrome")
             else:
                 logger.warning(f"[CHROME] 未找到Chrome二进制文件，使用自动检测（可能不稳定）")
-            
+
             driver = uc.Chrome(options=options, use_subprocess=True)
+
+            # 设置隐式等待和页面加载超时
+            driver.implicitly_wait(10)
+            driver.set_page_load_timeout(60)
+            driver.set_script_timeout(30)
+
+            # 执行反检测 JavaScript
+            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+                'source': '''
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                    Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en']});
+                    window.chrome = {runtime: {}};
+                '''
+            })
+
             wait = WebDriverWait(driver, 30)
 
             # 1. 访问登录页
             driver.get(self.auth_config.login_url)
-            time.sleep(2)
+            time.sleep(3)  # 增加等待时间
 
             # 2-6. 执行邮箱验证流程（使用公共方法，与注册服务相同）
             verify_result = self.auth_helper.perform_email_verification(driver, wait, email)
