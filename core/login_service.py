@@ -200,16 +200,6 @@ class LoginService:
             driver.set_page_load_timeout(60)
             driver.set_script_timeout(30)
 
-            # 执行反检测 JavaScript
-            driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-                'source': '''
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                    Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en']});
-                    window.chrome = {runtime: {}};
-                '''
-            })
-
             wait = WebDriverWait(driver, 30)
 
             # 1. 访问登录页
