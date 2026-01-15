@@ -146,19 +146,72 @@ class GeminiAuthHelper:
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support import expected_conditions as EC
 
-            # 1. 输入邮箱
-            inp = wait.until(EC.element_to_be_clickable((By.XPATH, self.XPATH["email_input"])))
+            # 1. 输入邮箱（多种选择器备选）
+            inp = None
+            email_selectors = [
+                (By.XPATH, self.XPATH["email_input"]),
+                (By.CSS_SELECTOR, "input[type='email']"),
+                (By.CSS_SELECTOR, "input[name='identifier']"),
+                (By.CSS_SELECTOR, "input[autocomplete='email']"),
+            ]
+            for selector in email_selectors:
+                try:
+                    inp = wait.until(EC.element_to_be_clickable(selector))
+                    if inp:
+                        logger.info(f"✅ 找到邮箱输入框: {selector}")
+                        break
+                except:
+                    continue
+
+            if not inp:
+                return {"success": False, "error": "未找到邮箱输入框"}
+
             inp.click()
             inp.clear()
             for c in email:
                 inp.send_keys(c)
                 time.sleep(0.02)
+            logger.info(f"✅ 邮箱已输入: {email}")
 
-            # 2. 点击继续
+            # 2. 点击继续按钮（多种选择器备选）
             time.sleep(0.5)
-            btn = wait.until(EC.element_to_be_clickable((By.XPATH, self.XPATH["continue_btn"])))
+            btn = None
+            continue_selectors = [
+                (By.XPATH, self.XPATH["continue_btn"]),
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.XPATH, "//button[contains(text(), '继续')]"),
+                (By.XPATH, "//button[contains(text(), 'Continue')]"),
+                (By.XPATH, "//button[contains(text(), '下一步')]"),
+                (By.XPATH, "//button[contains(text(), 'Next')]"),
+            ]
+            for selector in continue_selectors:
+                try:
+                    btn = wait.until(EC.element_to_be_clickable(selector))
+                    if btn:
+                        logger.info(f"✅ 找到继续按钮: {selector}")
+                        break
+                except:
+                    continue
+
+            if not btn:
+                return {"success": False, "error": "未找到继续按钮"}
+
             driver.execute_script("arguments[0].click();", btn)
+            logger.info(f"✅ 已点击继续按钮，等待验证码页面...")
+
+            # 等待页面跳转到验证码输入页面（检测验证码输入框出现）
             time.sleep(2)
+            try:
+                # 等待验证码输入框出现，最多等待10秒
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput'], span[data-index='0']")))
+                logger.info(f"✅ 验证码页面已加载")
+            except:
+                # 检查是否出现错误页面
+                page_source = driver.page_source
+                if "请试试其他方法" in page_source or "格式不正确" in page_source:
+                    logger.error(f"❌ Google 拒绝了登录请求（可能账户已被限制）")
+                    return {"success": False, "error": "Google 拒绝登录请求，账户可能已被限制"}
+                logger.warning(f"⚠️ 未检测到验证码输入框，继续尝试获取验证码...")
 
             # 3. 获取验证码
             code = self.get_verification_code(email)
