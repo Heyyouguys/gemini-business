@@ -135,148 +135,171 @@ class GeminiAuthHelper:
         logger.error(f"❌ 验证码超时 [{email}]")
         return None
 
-    def perform_email_verification(self, driver, wait, email: str) -> Dict[str, Any]:
+    def perform_email_verification(self, driver, wait, email: str, max_retries: int = 3) -> Dict[str, Any]:
         """
         执行邮箱验证流程（公共方法）
         从输入邮箱到验证码验证完成
 
+        如果验证码获取失败，会刷新页面重新尝试，最多重试 max_retries 次
+
         返回: {"success": bool, "error": str|None}
         """
-        try:
-            from selenium.webdriver.common.by import By
-            from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as EC
 
-            # 1. 输入邮箱（多种选择器备选）
-            inp = None
-            email_selectors = [
-                (By.XPATH, self.XPATH["email_input"]),
-                (By.CSS_SELECTOR, "input[type='email']"),
-                (By.CSS_SELECTOR, "input[name='identifier']"),
-                (By.CSS_SELECTOR, "input[autocomplete='email']"),
-            ]
-            for selector in email_selectors:
-                try:
-                    inp = wait.until(EC.element_to_be_clickable(selector))
-                    if inp:
-                        logger.info(f"✅ 找到邮箱输入框: {selector}")
-                        break
-                except:
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    logger.info(f"🔄 第 {attempt + 1}/{max_retries} 次重试...")
+                    # 刷新页面回到登录页
+                    driver.get(self.config.login_url)
+                    time.sleep(2)
+
+                # 1. 输入邮箱（多种选择器备选）
+                inp = None
+                email_selectors = [
+                    (By.XPATH, self.XPATH["email_input"]),
+                    (By.CSS_SELECTOR, "input[type='email']"),
+                    (By.CSS_SELECTOR, "input[name='identifier']"),
+                    (By.CSS_SELECTOR, "input[autocomplete='email']"),
+                ]
+                for selector in email_selectors:
+                    try:
+                        inp = wait.until(EC.element_to_be_clickable(selector))
+                        if inp:
+                            logger.info(f"✅ 找到邮箱输入框: {selector}")
+                            break
+                    except:
+                        continue
+
+                if not inp:
+                    last_error = "未找到邮箱输入框"
                     continue
 
-            if not inp:
-                return {"success": False, "error": "未找到邮箱输入框"}
+                inp.click()
+                inp.clear()
+                for c in email:
+                    inp.send_keys(c)
+                    time.sleep(0.02)
+                logger.info(f"✅ 邮箱已输入: {email}")
 
-            inp.click()
-            inp.clear()
-            for c in email:
-                inp.send_keys(c)
-                time.sleep(0.02)
-            logger.info(f"✅ 邮箱已输入: {email}")
+                # 2. 点击继续按钮（多种选择器备选）
+                time.sleep(0.5)
+                btn = None
+                continue_selectors = [
+                    (By.XPATH, self.XPATH["continue_btn"]),
+                    (By.CSS_SELECTOR, "button[type='submit']"),
+                    (By.XPATH, "//button[contains(text(), '继续')]"),
+                    (By.XPATH, "//button[contains(text(), 'Continue')]"),
+                    (By.XPATH, "//button[contains(text(), '下一步')]"),
+                    (By.XPATH, "//button[contains(text(), 'Next')]"),
+                ]
+                for selector in continue_selectors:
+                    try:
+                        btn = wait.until(EC.element_to_be_clickable(selector))
+                        if btn:
+                            logger.info(f"✅ 找到继续按钮: {selector}")
+                            break
+                    except:
+                        continue
 
-            # 2. 点击继续按钮（多种选择器备选）
-            time.sleep(0.5)
-            btn = None
-            continue_selectors = [
-                (By.XPATH, self.XPATH["continue_btn"]),
-                (By.CSS_SELECTOR, "button[type='submit']"),
-                (By.XPATH, "//button[contains(text(), '继续')]"),
-                (By.XPATH, "//button[contains(text(), 'Continue')]"),
-                (By.XPATH, "//button[contains(text(), '下一步')]"),
-                (By.XPATH, "//button[contains(text(), 'Next')]"),
-            ]
-            for selector in continue_selectors:
-                try:
-                    btn = wait.until(EC.element_to_be_clickable(selector))
-                    if btn:
-                        logger.info(f"✅ 找到继续按钮: {selector}")
-                        break
-                except:
+                if not btn:
+                    last_error = "未找到继续按钮"
                     continue
 
-            if not btn:
-                return {"success": False, "error": "未找到继续按钮"}
+                driver.execute_script("arguments[0].click();", btn)
+                logger.info(f"✅ 已点击继续按钮，等待验证码页面...")
 
-            driver.execute_script("arguments[0].click();", btn)
-            logger.info(f"✅ 已点击继续按钮，等待验证码页面...")
-
-            # 等待页面跳转到验证码输入页面（检测验证码输入框出现）
-            time.sleep(2)
-            try:
-                # 等待验证码输入框出现，最多等待10秒
-                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput'], span[data-index='0']")))
-                logger.info(f"✅ 验证码页面已加载")
-            except:
-                # 检查是否出现错误页面
-                page_source = driver.page_source
-                if "请试试其他方法" in page_source or "格式不正确" in page_source:
-                    logger.error(f"❌ Google 拒绝了登录请求（可能账户已被限制）")
-                    return {"success": False, "error": "Google 拒绝登录请求，账户可能已被限制"}
-                logger.warning(f"⚠️ 未检测到验证码输入框，继续尝试获取验证码...")
-
-            # 3. 获取验证码
-            code = self.get_verification_code(email)
-            if not code:
-                return {"success": False, "error": "验证码超时"}
-
-            # 4. 输入验证码
-            time.sleep(1)
-            code_entered = False
-
-            # 方法1: 点击第一个 span 激活输入框，然后发送验证码
-            try:
-                span = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "span[data-index='0']")))
-                span.click()
-                time.sleep(0.3)
-                driver.switch_to.active_element.send_keys(code)
-                code_entered = True
-                logger.info(f"✅ 验证码输入成功（方法1: span点击）")
-            except Exception as e1:
-                logger.warning(f"⚠️ 方法1失败: {e1}")
-
-            # 方法2: 直接操作隐藏的 input 元素
-            if not code_entered:
+                # 等待页面跳转到验证码输入页面（检测验证码输入框出现）
+                time.sleep(2)
                 try:
-                    pin = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput']")))
-                    # 使用 JavaScript 直接设置值并触发事件
-                    driver.execute_script("""
-                        arguments[0].value = arguments[1];
-                        arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-                    """, pin, code)
-                    code_entered = True
-                    logger.info(f"✅ 验证码输入成功（方法2: JS注入）")
-                except Exception as e2:
-                    logger.warning(f"⚠️ 方法2失败: {e2}")
+                    # 等待验证码输入框出现，最多等待10秒
+                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput'], span[data-index='0']")))
+                    logger.info(f"✅ 验证码页面已加载")
+                except:
+                    # 检查是否出现错误页面
+                    page_source = driver.page_source
+                    if "请试试其他方法" in page_source or "格式不正确" in page_source:
+                        logger.error(f"❌ Google 拒绝了登录请求（可能账户已被限制）")
+                        return {"success": False, "error": "Google 拒绝登录请求，账户可能已被限制"}
+                    logger.warning(f"⚠️ 未检测到验证码输入框，继续尝试获取验证码...")
 
-            # 方法3: 点击容器后发送按键
-            if not code_entered:
+                # 3. 获取验证码
+                code = self.get_verification_code(email)
+                if not code:
+                    last_error = "验证码超时"
+                    logger.warning(f"⚠️ 验证码获取失败，准备重试...")
+                    continue  # 重试
+
+                # 4. 输入验证码
+                time.sleep(1)
+                code_entered = False
+
+                # 方法1: 点击第一个 span 激活输入框，然后发送验证码
                 try:
-                    container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.nwkWRe")))
-                    container.click()
+                    span = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "span[data-index='0']")))
+                    span.click()
                     time.sleep(0.3)
                     driver.switch_to.active_element.send_keys(code)
                     code_entered = True
-                    logger.info(f"✅ 验证码输入成功（方法3: 容器点击）")
-                except Exception as e3:
-                    logger.warning(f"⚠️ 方法3失败: {e3}")
+                    logger.info(f"✅ 验证码输入成功（方法1: span点击）")
+                except Exception as e1:
+                    logger.warning(f"⚠️ 方法1失败: {e1}")
 
-            if not code_entered:
-                return {"success": False, "error": "验证码输入失败: 所有方法均失败"}
+                # 方法2: 直接操作隐藏的 input 元素
+                if not code_entered:
+                    try:
+                        pin = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput']")))
+                        # 使用 JavaScript 直接设置值并触发事件
+                        driver.execute_script("""
+                            arguments[0].value = arguments[1];
+                            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                        """, pin, code)
+                        code_entered = True
+                        logger.info(f"✅ 验证码输入成功（方法2: JS注入）")
+                    except Exception as e2:
+                        logger.warning(f"⚠️ 方法2失败: {e2}")
 
-            # 5. 点击验证按钮
-            time.sleep(0.5)
-            try:
-                vbtn = driver.find_element(By.XPATH, self.XPATH["verify_btn"])
-                driver.execute_script("arguments[0].click();", vbtn)
-            except:
-                for btn in driver.find_elements(By.TAG_NAME, "button"):
-                    if '验证' in btn.text:
-                        driver.execute_script("arguments[0].click();", btn)
-                        break
+                # 方法3: 点击容器后发送按键
+                if not code_entered:
+                    try:
+                        container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.nwkWRe")))
+                        container.click()
+                        time.sleep(0.3)
+                        driver.switch_to.active_element.send_keys(code)
+                        code_entered = True
+                        logger.info(f"✅ 验证码输入成功（方法3: 容器点击）")
+                    except Exception as e3:
+                        logger.warning(f"⚠️ 方法3失败: {e3}")
 
-            return {"success": True, "error": None}
+                if not code_entered:
+                    last_error = "验证码输入失败: 所有方法均失败"
+                    continue  # 重试
 
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+                # 5. 点击验证按钮
+                time.sleep(0.5)
+                try:
+                    vbtn = driver.find_element(By.XPATH, self.XPATH["verify_btn"])
+                    driver.execute_script("arguments[0].click();", vbtn)
+                except:
+                    for btn in driver.find_elements(By.TAG_NAME, "button"):
+                        if '验证' in btn.text:
+                            driver.execute_script("arguments[0].click();", btn)
+                            break
+
+                # 验证成功
+                return {"success": True, "error": None}
+
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"⚠️ 第 {attempt + 1} 次尝试失败: {e}")
+                continue
+
+        # 所有重试都失败
+        logger.error(f"❌ 验证流程失败，已重试 {max_retries} 次: {last_error}")
+        return {"success": False, "error": f"验证失败（已重试{max_retries}次）: {last_error}"}
 
     def extract_config_from_workspace(self, driver) -> Dict[str, Any]:
         """
