@@ -222,6 +222,17 @@ class RegisterService:
             options.add_argument('--disable-background-networking')
             options.add_argument('--disable-default-apps')
             options.add_argument('--disable-sync')
+
+            # 指定Chrome二进制路径
+            chrome_binary = os.environ.get('CHROME_BIN', '/usr/bin/google-chrome-stable')
+            if os.path.exists(chrome_binary):
+                options.binary_location = chrome_binary
+                logger.debug(f"[CHROME] 使用Chrome路径: {chrome_binary}")
+            elif os.path.exists('/usr/bin/google-chrome'):
+                options.binary_location = '/usr/bin/google-chrome'
+                logger.debug(f"[CHROME] 使用备用Chrome路径: /usr/bin/google-chrome")
+            else:
+                logger.warning(f"[CHROME] 未找到Chrome二进制文件，使用自动检测（可能不稳定）")
             
             driver = uc.Chrome(options=options, use_subprocess=True)
             wait = WebDriverWait(driver, 30)

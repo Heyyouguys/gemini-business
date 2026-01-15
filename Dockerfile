@@ -76,6 +76,8 @@ exec "$@"\n' > /app/start-xvfb.sh && chmod +x /app/start-xvfb.sh
 ENV DISPLAY=:99
 # 设置时区为东八区（北京时间）
 ENV TZ=Asia/Shanghai
+# 🔥 艹，明确指定Chrome路径，避免"Binary Location Must be a String"错误
+ENV CHROME_BIN=/usr/bin/google-chrome-stable
 
 # 使用 Xvfb 启动脚本作为 entrypoint
 ENTRYPOINT ["/app/start-xvfb.sh"]
