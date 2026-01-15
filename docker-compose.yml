@@ -1,21 +1,26 @@
 services:
   gemini-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: 
+    # 如需本地构建，取消下面两行注释并注释掉上面的 image
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: gemini-business2api
     ports:
-      - "7860:7860"
+      - "17880:7860"
     volumes:
       - ./data:/app/data
     env_file:
       - .env
+    environment:
+      - TZ=Asia/Shanghai
     restart: unless-stopped
     # 限制资源使用（因为包含 Chrome）
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
+    #deploy:
+    #  resources:
+    #    limits:
+    #      cpus: '2'
+    #      memory: 2G
 
 networks:
   default:
