@@ -196,6 +196,10 @@ class LoginService:
             config_data = extract_result["config"]
 
             config = self._update_account_config(email, config_data)
+            if config is None:
+                logger.error(f"❌ 登录刷新失败 [{email}]: 账户不存在于 accounts.json")
+                return {"email": email, "success": False, "config": None, "error": "账户不存在于 accounts.json，无法更新"}
+
             logger.info(f"✅ 登录刷新成功: {email}")
             return {"email": email, "success": True, "config": config, "error": None}
 

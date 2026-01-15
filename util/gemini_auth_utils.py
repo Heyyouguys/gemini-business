@@ -167,21 +167,47 @@ class GeminiAuthHelper:
 
             # 4. 输入验证码
             time.sleep(1)
+            code_entered = False
+
+            # 方法1: 点击第一个 span 激活输入框，然后发送验证码
             try:
-                pin = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput']")))
-                pin.click()
-                time.sleep(0.1)
-                for c in code:
-                    pin.send_keys(c)
-                    time.sleep(0.05)
-            except:
+                span = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "span[data-index='0']")))
+                span.click()
+                time.sleep(0.3)
+                driver.switch_to.active_element.send_keys(code)
+                code_entered = True
+                logger.info(f"✅ 验证码输入成功（方法1: span点击）")
+            except Exception as e1:
+                logger.warning(f"⚠️ 方法1失败: {e1}")
+
+            # 方法2: 直接操作隐藏的 input 元素
+            if not code_entered:
                 try:
-                    span = driver.find_element(By.CSS_SELECTOR, "span[data-index='0']")
-                    span.click()
-                    time.sleep(0.2)
+                    pin = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput']")))
+                    # 使用 JavaScript 直接设置值并触发事件
+                    driver.execute_script("""
+                        arguments[0].value = arguments[1];
+                        arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                    """, pin, code)
+                    code_entered = True
+                    logger.info(f"✅ 验证码输入成功（方法2: JS注入）")
+                except Exception as e2:
+                    logger.warning(f"⚠️ 方法2失败: {e2}")
+
+            # 方法3: 点击容器后发送按键
+            if not code_entered:
+                try:
+                    container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.nwkWRe")))
+                    container.click()
+                    time.sleep(0.3)
                     driver.switch_to.active_element.send_keys(code)
-                except Exception as e:
-                    return {"success": False, "error": f"验证码输入失败: {e}"}
+                    code_entered = True
+                    logger.info(f"✅ 验证码输入成功（方法3: 容器点击）")
+                except Exception as e3:
+                    logger.warning(f"⚠️ 方法3失败: {e3}")
+
+            if not code_entered:
+                return {"success": False, "error": "验证码输入失败: 所有方法均失败"}
 
             # 5. 点击验证按钮
             time.sleep(0.5)
