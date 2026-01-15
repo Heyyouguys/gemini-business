@@ -9,7 +9,8 @@ services:
     ports:
       - "17880:7860"
     volumes:
-      - ./data:/app/data
+    - ./data:/data
+    - ./data:/app/data
     env_file:
       - .env
     environment:
