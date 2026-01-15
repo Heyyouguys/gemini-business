@@ -184,13 +184,19 @@ class LoginService:
             if not verify_result["success"]:
                 return {"email": email, "success": False, "config": None, "error": verify_result["error"]}
 
+            logger.info(f"✅ [{email}] 验证流程完成，等待跳转到工作台...")
+
             # 7. 等待进入工作台（使用公共方法）
             if not self.auth_helper.wait_for_workspace(driver, timeout=30):
+                logger.error(f"❌ [{email}] 未跳转到工作台，当前URL: {driver.current_url}")
                 return {"email": email, "success": False, "config": None, "error": "未跳转到工作台"}
+
+            logger.info(f"✅ [{email}] 已进入工作台，开始提取配置...")
 
             # 8. 提取配置（使用公共方法，带重试机制处理 tab crashed）
             extract_result = self.auth_helper.extract_config_with_retry(driver, max_retries=3)
             if not extract_result["success"]:
+                logger.error(f"❌ [{email}] 提取配置失败: {extract_result['error']}")
                 return {"email": email, "success": False, "config": None, "error": extract_result["error"]}
 
             config_data = extract_result["config"]
