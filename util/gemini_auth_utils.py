@@ -280,14 +280,57 @@ class GeminiAuthHelper:
 
                 # 5. 点击验证按钮
                 time.sleep(0.5)
+                verify_clicked = False
+
+                # 方法1: 使用 XPath 找验证按钮
                 try:
                     vbtn = driver.find_element(By.XPATH, self.XPATH["verify_btn"])
                     driver.execute_script("arguments[0].click();", vbtn)
-                except:
-                    for btn in driver.find_elements(By.TAG_NAME, "button"):
-                        if '验证' in btn.text:
-                            driver.execute_script("arguments[0].click();", btn)
-                            break
+                    verify_clicked = True
+                    logger.info("✅ 点击验证按钮成功（方法1: XPath）")
+                except Exception as e1:
+                    logger.warning(f"⚠️ 验证按钮方法1失败: {e1}")
+
+                # 方法2: 查找包含"验证"文字的按钮
+                if not verify_clicked:
+                    try:
+                        for btn in driver.find_elements(By.TAG_NAME, "button"):
+                            btn_text = btn.text.lower()
+                            if '验证' in btn_text or 'verify' in btn_text:
+                                driver.execute_script("arguments[0].click();", btn)
+                                verify_clicked = True
+                                logger.info(f"✅ 点击验证按钮成功（方法2: 文字匹配 '{btn.text}'）")
+                                break
+                    except Exception as e2:
+                        logger.warning(f"⚠️ 验证按钮方法2失败: {e2}")
+
+                # 方法3: 查找 type=submit 的按钮
+                if not verify_clicked:
+                    try:
+                        submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
+                        driver.execute_script("arguments[0].click();", submit_btn)
+                        verify_clicked = True
+                        logger.info("✅ 点击验证按钮成功（方法3: submit按钮）")
+                    except Exception as e3:
+                        logger.warning(f"⚠️ 验证按钮方法3失败: {e3}")
+
+                # 方法4: 模拟回车键提交
+                if not verify_clicked:
+                    try:
+                        from selenium.webdriver.common.keys import Keys
+                        driver.switch_to.active_element.send_keys(Keys.ENTER)
+                        verify_clicked = True
+                        logger.info("✅ 点击验证按钮成功（方法4: 回车键）")
+                    except Exception as e4:
+                        logger.warning(f"⚠️ 验证按钮方法4失败: {e4}")
+
+                if not verify_clicked:
+                    last_error = "验证按钮点击失败"
+                    logger.error("❌ 所有验证按钮点击方法均失败")
+                    continue  # 重试
+
+                # 等待页面跳转
+                time.sleep(2)
 
                 # 验证成功
                 return {"success": True, "error": None}
