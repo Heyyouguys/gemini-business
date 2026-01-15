@@ -186,10 +186,40 @@ class LoginService:
 
             logger.info(f"✅ [{email}] 验证流程完成，等待跳转到工作台...")
 
-            # 7. 等待进入工作台（使用公共方法）
-            if not self.auth_helper.wait_for_workspace(driver, timeout=30):
-                logger.error(f"❌ [{email}] 未跳转到工作台，当前URL: {driver.current_url}")
-                return {"email": email, "success": False, "config": None, "error": "未跳转到工作台"}
+            # 7. 等待进入工作台（使用公共方法），失败时重试整个流程
+            max_workspace_retries = 3
+            workspace_success = False
+
+            for ws_attempt in range(max_workspace_retries):
+                if self.auth_helper.wait_for_workspace(driver, timeout=30):
+                    workspace_success = True
+                    break
+                else:
+                    current_url = driver.current_url
+                    logger.warning(f"⚠️ [{email}] 第 {ws_attempt + 1}/{max_workspace_retries} 次等待工作台失败，当前URL: {current_url}")
+
+                    # 如果停留在验证页面，重新走一遍登录流程
+                    if 'verify-oob-code' in current_url or 'accountverification' in current_url:
+                        logger.info(f"🔄 [{email}] 检测到验证页面未跳转，重新执行登录流程...")
+                        driver.get(self.auth_config.login_url)
+                        time.sleep(2)
+
+                        # 重新执行验证流程
+                        verify_result = self.auth_helper.perform_email_verification(driver, wait, email)
+                        if not verify_result["success"]:
+                            logger.warning(f"⚠️ [{email}] 重试验证流程失败: {verify_result['error']}")
+                            continue
+
+                        logger.info(f"✅ [{email}] 重试验证流程完成，继续等待工作台...")
+                    else:
+                        # 其他情况，尝试直接访问工作台
+                        logger.info(f"🔄 [{email}] 尝试直接访问工作台...")
+                        driver.get("https://business.gemini.google/")
+                        time.sleep(3)
+
+            if not workspace_success:
+                logger.error(f"❌ [{email}] 未跳转到工作台，已重试 {max_workspace_retries} 次")
+                return {"email": email, "success": False, "config": None, "error": f"未跳转到工作台（已重试{max_workspace_retries}次）"}
 
             logger.info(f"✅ [{email}] 已进入工作台，开始提取配置...")
 
