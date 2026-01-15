@@ -209,7 +209,9 @@ class GeminiAuthHelper:
                     last_error = "未找到继续按钮"
                     continue
 
-                driver.execute_script("arguments[0].click();", btn)
+                # 使用 ActionChains 点击，更接近真实用户行为
+                from selenium.webdriver.common.action_chains import ActionChains
+                ActionChains(driver).move_to_element(btn).click().perform()
                 logger.info(f"✅ 已点击继续按钮，等待验证码页面...")
 
                 # 等待页面跳转到验证码输入页面（检测验证码输入框出现）
@@ -255,8 +257,9 @@ class GeminiAuthHelper:
                 if not code_entered:
                     try:
                         pin = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput']")))
-                        # 使用 JS 点击激活（因为元素可能是隐藏的）
-                        driver.execute_script("arguments[0].click(); arguments[0].focus();", pin)
+                        # 使用 ActionChains 点击并聚焦
+                        from selenium.webdriver.common.action_chains import ActionChains
+                        ActionChains(driver).move_to_element(pin).click().perform()
                         time.sleep(0.3)
                         active = driver.switch_to.active_element
                         for char in code:
@@ -292,8 +295,9 @@ class GeminiAuthHelper:
 
                 # 方法1: 使用 XPath 找验证按钮
                 try:
-                    vbtn = driver.find_element(By.XPATH, self.XPATH["verify_btn"])
-                    driver.execute_script("arguments[0].click();", vbtn)
+                    vbtn = wait.until(EC.element_to_be_clickable((By.XPATH, self.XPATH["verify_btn"])))
+                    from selenium.webdriver.common.action_chains import ActionChains
+                    ActionChains(driver).move_to_element(vbtn).click().perform()
                     verify_clicked = True
                     logger.info("✅ 点击验证按钮成功（方法1: XPath）")
                 except Exception as e1:
@@ -302,10 +306,11 @@ class GeminiAuthHelper:
                 # 方法2: 查找包含"验证"文字的按钮
                 if not verify_clicked:
                     try:
+                        from selenium.webdriver.common.action_chains import ActionChains
                         for btn in driver.find_elements(By.TAG_NAME, "button"):
                             btn_text = btn.text.lower()
                             if '验证' in btn_text or 'verify' in btn_text:
-                                driver.execute_script("arguments[0].click();", btn)
+                                ActionChains(driver).move_to_element(btn).click().perform()
                                 verify_clicked = True
                                 logger.info(f"✅ 点击验证按钮成功（方法2: 文字匹配 '{btn.text}'）")
                                 break
@@ -315,8 +320,9 @@ class GeminiAuthHelper:
                 # 方法3: 查找 type=submit 的按钮
                 if not verify_clicked:
                     try:
-                        submit_btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit']")
-                        driver.execute_script("arguments[0].click();", submit_btn)
+                        submit_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
+                        from selenium.webdriver.common.action_chains import ActionChains
+                        ActionChains(driver).move_to_element(submit_btn).click().perform()
                         verify_clicked = True
                         logger.info("✅ 点击验证按钮成功（方法3: submit按钮）")
                     except Exception as e3:
@@ -455,15 +461,18 @@ class GeminiAuthHelper:
     def _recover_from_crash(self, driver, target_url: str) -> bool:
         """
         从崩溃中恢复：开新标签页访问目标URL
-        
+
         艹，崩溃的标签页刷新没用，得开新的！
         """
         try:
+            from selenium.webdriver.common.keys import Keys
+            from selenium.webdriver.common.action_chains import ActionChains
+
             # 获取当前所有窗口句柄
             original_handles = driver.window_handles
-            
-            # 开新标签页
-            driver.execute_script("window.open('');")
+
+            # 使用快捷键打开新标签页 (Ctrl+T)
+            ActionChains(driver).key_down(Keys.CONTROL).send_keys('t').key_up(Keys.CONTROL).perform()
             time.sleep(0.5)
             
             # 获取新窗口句柄
