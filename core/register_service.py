@@ -22,12 +22,124 @@ from typing import Optional, List, Dict, Any
 import requests
 from dotenv import load_dotenv
 
+from core.config import config
 from util.gemini_auth_utils import GeminiAuthConfig, GeminiAuthHelper
 
 # 加载环境变量
 load_dotenv()
 
 logger = logging.getLogger("gemini.register")
+
+_CRON_MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12
+}
+_CRON_DAYS = {
+    "sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6
+}
+
+
+def _normalize_cron_expr(expr: str) -> str:
+    return " ".join(expr.strip().split())
+
+
+def _parse_cron_value(value: str, names: Optional[Dict[str, int]] = None) -> int:
+    if names:
+        name_value = names.get(value.lower())
+        if name_value is not None:
+            return name_value
+    return int(value)
+
+
+def _parse_cron_field(
+    field: str,
+    min_value: int,
+    max_value: int,
+    names: Optional[Dict[str, int]] = None,
+    allow_7_to_0: bool = False
+) -> set:
+    if field == "?":
+        field = "*"
+
+    values = set()
+    parts = field.split(",")
+    for part in parts:
+        part = part.strip()
+        if not part:
+            raise ValueError("Cron 字段为空")
+
+        step = 1
+        base = part
+        if "/" in part:
+            base, step_str = part.split("/", 1)
+            step = int(step_str)
+            if step <= 0:
+                raise ValueError("Cron 步长必须大于 0")
+
+        if base in ["*", "?"]:
+            start, end = min_value, max_value
+        elif "-" in base:
+            start_str, end_str = base.split("-", 1)
+            start = _parse_cron_value(start_str, names)
+            end = _parse_cron_value(end_str, names)
+        else:
+            start = end = _parse_cron_value(base, names)
+
+        if start > end:
+            raise ValueError("Cron 范围起止值错误")
+
+        for val in range(start, end + 1, step):
+            values.add(val)
+
+    if allow_7_to_0 and 7 in values:
+        values.remove(7)
+        values.add(0)
+
+    out_of_range = [v for v in values if v < min_value or v > max_value]
+    if out_of_range:
+        raise ValueError("Cron 字段超出有效范围")
+
+    return values
+
+
+def _parse_cron_expression(expr: str) -> Dict[str, Any]:
+    normalized = _normalize_cron_expr(expr)
+    parts = normalized.split(" ")
+    if len(parts) != 5:
+        raise ValueError("Cron 表达式需 5 段")
+
+    minute_field, hour_field, dom_field, month_field, dow_field = parts
+
+    return {
+        "minute": _parse_cron_field(minute_field, 0, 59),
+        "hour": _parse_cron_field(hour_field, 0, 23),
+        "dom": _parse_cron_field(dom_field, 1, 31),
+        "month": _parse_cron_field(month_field, 1, 12, names=_CRON_MONTHS),
+        "dow": _parse_cron_field(dow_field, 0, 7, names=_CRON_DAYS, allow_7_to_0=True),
+        "dom_any": dom_field.strip() == "*",
+        "dow_any": dow_field.strip() == "*",
+    }
+
+
+def _cron_matches(schedule: Dict[str, Any], now: datetime) -> bool:
+    if now.minute not in schedule["minute"]:
+        return False
+    if now.hour not in schedule["hour"]:
+        return False
+    if now.month not in schedule["month"]:
+        return False
+
+    dom_match = now.day in schedule["dom"]
+    cron_dow = (now.weekday() + 1) % 7
+    dow_match = cron_dow in schedule["dow"]
+
+    if schedule["dom_any"] and schedule["dow_any"]:
+        return True
+    if schedule["dom_any"]:
+        return dow_match
+    if schedule["dow_any"]:
+        return dom_match
+    return dom_match or dow_match
 
 
 class RegisterStatus(str, Enum):
@@ -80,6 +192,11 @@ class RegisterService:
         self._tasks: Dict[str, RegisterTask] = {}
         self._current_task_id: Optional[str] = None
         self._email_queue: List[str] = []
+        self._cron_task: Optional[asyncio.Task] = None
+        self._is_cron_polling = False
+        self._last_cron_run_key: Optional[str] = None
+        self._cron_cache_expr: Optional[str] = None
+        self._cron_cache: Optional[Dict[str, Any]] = None
         # 数据目录配置（与 main.py 保持一致）
         if os.path.exists("/data"):
             self.output_dir = Path("/data")
@@ -431,6 +548,73 @@ class RegisterService:
         if self._current_task_id:
             return self._tasks.get(self._current_task_id)
         return None
+
+    async def _start_auto_register(self):
+        """按配置启动一次自动注册任务"""
+        count = config.basic.register_number
+        if count < 1:
+            return
+
+        try:
+            task = await self.start_register(count, None)
+            logger.info(f"[REGISTER] 自动注册任务已启动: {task.id} | count={count}")
+        except ValueError as e:
+            logger.info(f"[REGISTER] 自动注册跳过: {e}")
+        except Exception as e:
+            logger.error(f"[REGISTER] 自动注册启动失败: {e}")
+
+    async def start_cron_polling(self):
+        """启动自动注册 Cron 轮询"""
+        if self._is_cron_polling:
+            logger.warning("[REGISTER] 自动注册 Cron 轮询已在运行中")
+            return
+
+        self._is_cron_polling = True
+        logger.info("[REGISTER] 自动注册 Cron 轮询已启动")
+
+        try:
+            while self._is_cron_polling:
+                enabled = config.auto_register.enabled
+                cron_expr = (config.auto_register.cron or "").strip()
+
+                if not enabled or not cron_expr:
+                    await asyncio.sleep(30)
+                    continue
+
+                if cron_expr != self._cron_cache_expr:
+                    try:
+                        self._cron_cache = _parse_cron_expression(cron_expr)
+                        self._cron_cache_expr = cron_expr
+                        logger.info(f"[REGISTER] 自动注册 Cron 已更新: {cron_expr}")
+                    except Exception as e:
+                        logger.error(f"[REGISTER] Cron 表达式错误: {e}")
+                        self._cron_cache = None
+                        self._cron_cache_expr = cron_expr
+                        await asyncio.sleep(60)
+                        continue
+
+                if not self._cron_cache:
+                    await asyncio.sleep(60)
+                    continue
+
+                now = datetime.now()
+                run_key = now.strftime("%Y-%m-%d %H:%M")
+                if run_key != self._last_cron_run_key and _cron_matches(self._cron_cache, now):
+                    self._last_cron_run_key = run_key
+                    await self._start_auto_register()
+
+                await asyncio.sleep(20)
+        except asyncio.CancelledError:
+            logger.info("[REGISTER] 自动注册 Cron 轮询已停止")
+        except Exception as e:
+            logger.error(f"[REGISTER] 自动注册 Cron 轮询异常: {e}")
+        finally:
+            self._is_cron_polling = False
+
+    def stop_cron_polling(self):
+        """停止自动注册 Cron 轮询"""
+        self._is_cron_polling = False
+        logger.info("[REGISTER] 正在停止自动注册 Cron 轮询...")
 
 
 # 全局注册服务实例

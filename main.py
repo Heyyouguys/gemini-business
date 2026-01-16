@@ -372,8 +372,11 @@ async def startup_event():
             login_service = get_login_service()
             asyncio.create_task(login_service.start_polling())
             logger.info("[SYSTEM] 账户过期检查轮询已启动（间隔: 30分钟）")
+            register_service = get_register_service()
+            asyncio.create_task(register_service.start_cron_polling())
+            logger.info("[SYSTEM] 自动注册定时任务已启动")
         except Exception as e:
-            logger.error(f"[SYSTEM] 启动登录服务失败: {e}")
+            logger.error(f"[SYSTEM] 启动登录/注册服务失败: {e}")
     else:
         logger.info("[SYSTEM] 登录服务未启用，跳过轮询任务")
 
@@ -865,6 +868,10 @@ async def admin_get_settings(request: Request):
         },
         "session": {
             "expire_hours": config.session.expire_hours
+        },
+        "auto_register": {
+            "enabled": config.auto_register.enabled,
+            "cron": config.auto_register.cron
         }
     }
 

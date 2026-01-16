@@ -3,6 +3,9 @@
 用于为 Jinja2 模板准备数据（纯数据，不包含 HTML）
 """
 
+import time
+from pathlib import Path
+
 from core.config import config_manager, config
 from core.account import format_account_expiration
 
@@ -122,6 +125,11 @@ def prepare_admin_template_data(
         account_data = _get_account_status(account_manager)
         accounts_data.append(account_data)
 
+    try:
+        static_version = int(Path("static/js/admin.js").stat().st_mtime)
+    except OSError:
+        static_version = int(time.time())
+
     # 返回所有模板变量（纯数据）
     return {
         "request": request,
@@ -135,6 +143,7 @@ def prepare_admin_template_data(
         "admin_path_segment": admin_path_segment,
         "api_path_segment": api_path_segment,
         "multi_account_mgr": multi_account_mgr,
+        "static_version": static_version,
         # 配置变量（用于 JavaScript）
         "main": {
             "PATH_PREFIX": path_prefix,

@@ -68,6 +68,12 @@ class SessionConfig(BaseModel):
     expire_hours: int = Field(default=24, ge=1, le=168, description="Session过期时间（小时）")
 
 
+class AutoRegisterConfig(BaseModel):
+    """自动注册配置"""
+    enabled: bool = Field(default=False, description="是否启用自动注册")
+    cron: str = Field(default="", description="Cron 表达式（5段）")
+
+
 class SecurityConfig(BaseModel):
     """安全配置（仅从环境变量读取，不可热更新）"""
     admin_key: str = Field(default="", description="管理员密钥（必需）")
@@ -87,6 +93,7 @@ class AppConfig(BaseModel):
     retry: RetryConfig
     public_display: PublicDisplayConfig
     session: SessionConfig
+    auto_register: AutoRegisterConfig
 
 
 # ==================== 配置管理器 ====================
@@ -173,6 +180,15 @@ class ConfigManager:
             **yaml_data.get("session", {})
         )
 
+        auto_register_data = yaml_data.get("auto_register", {})
+        enabled_value = auto_register_data.get("enabled")
+        if enabled_value is None:
+            enabled_value = os.getenv("AUTO_REGISTER_ENABLED", "").lower() in ["1", "true", "yes", "y", "on"]
+        auto_register_config = AutoRegisterConfig(
+            enabled=enabled_value,
+            cron=auto_register_data.get("cron") or os.getenv("AUTO_REGISTER_CRON", "")
+        )
+
         # 5. 构建完整配置
         self._config = AppConfig(
             security=security_config,
@@ -180,7 +196,8 @@ class ConfigManager:
             image_generation=image_generation_config,
             retry=retry_config,
             public_display=public_display_config,
-            session=session_config
+            session=session_config,
+            auto_register=auto_register_config
         )
 
     def _load_yaml(self) -> dict:
@@ -336,5 +353,9 @@ class _ConfigProxy:
     @property
     def session(self):
         return config_manager.config.session
+
+    @property
+    def auto_register(self):
+        return config_manager.config.auto_register
 
 config = _ConfigProxy()

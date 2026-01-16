@@ -5,7 +5,7 @@
 {% block title %}系统管理 - Gemini Business API{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="/static/css/admin.css">
+<link rel="stylesheet" href="/static/css/admin.css?v={{ static_version }}">
 {% endblock %}
 
 {% block content %}
@@ -97,7 +97,7 @@
                 <div class="section">
                     <div class="section-title">账户状态 ({{ multi_account_mgr.accounts|length }} 个)</div>
                     <div style="color: #6b6b6b; font-size: 12px; margin-bottom: 12px; padding-left: 4px;">
-                        默认过期时间12小时，注意北京时间 • 批量上传使用 <code style="font-size: 11px; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">script/download-config.js</code> 油猴脚本
+                        默认过期时间12小时，注意北京时间 • 手动批量上传使用 <code style="font-size: 11px; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">script/download-config.js</code> 油猴脚本
                     </div>
 
                     <!-- 批量注册按钮和进度展示 -->
@@ -373,6 +373,26 @@
                                 </div>
                             </div>
 
+                            <!-- 自动注册配置 -->
+                            <div class="card">
+                                <h3>🕒 自动注册配置</h3>
+                                <div style="margin-top: 12px;">
+                                    <div class="setting-item">
+                                        <label style="display: flex; align-items: center; gap: 8px;">
+                                            <input type="checkbox" id="setting-auto-register-enabled" style="width: auto;" />
+                                            启用自动注册
+                                        </label>
+                                    </div>
+                                    <div class="setting-item">
+                                        <label>Cron 表达式（5段）</label>
+                                        <input type="text" id="setting-auto-register-cron" placeholder="如 0 3 * * *" />
+                                        <div style="margin-top: 4px; font-size: 11px; color: #6b6b6b;">
+                                            分钟 小时 日 月 周（0=周日，1=周一）
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- 图片生成配置 -->
                             <div class="card">
                                 <h3>📸 图片生成配置</h3>
@@ -524,5 +544,5 @@
     // Define global variables for admin.js
     window.ADMIN_PATH = '{{ admin_path_segment }}';
 </script>
-<script src="/static/js/admin.js"></script>
+<script src="/static/js/admin.js?v={{ static_version }}"></script>
 {% endblock %}

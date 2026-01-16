@@ -335,6 +335,10 @@ async function loadSettings() {
         document.getElementById('setting-email-domain').value = settings.basic?.email_domain?.join(',') || '';
         document.getElementById('setting-register-number').value = settings.basic?.register_number || 5;
 
+        // 自动注册配置
+        document.getElementById('setting-auto-register-enabled').checked = settings.auto_register?.enabled ?? false;
+        document.getElementById('setting-auto-register-cron').value = settings.auto_register?.cron || '';
+
         // 图片生成配置
         document.getElementById('setting-image-enabled').checked = settings.image_generation?.enabled ?? true;
         const supportedModels = settings.image_generation?.supported_models || [];
@@ -378,6 +382,10 @@ async function saveSettings() {
                 google_mail: document.getElementById('setting-google-mail').value,
                 email_domain: document.getElementById('setting-email-domain').value.split(',').map(d => d.trim()).filter(d => d),
                 register_number: parseInt(document.getElementById('setting-register-number').value) || 5
+            },
+            auto_register: {
+                enabled: document.getElementById('setting-auto-register-enabled').checked,
+                cron: document.getElementById('setting-auto-register-cron').value.trim()
             },
             image_generation: {
                 enabled: document.getElementById('setting-image-enabled').checked,
