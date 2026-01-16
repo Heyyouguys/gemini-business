@@ -51,7 +51,7 @@ class GeminiAuthHelper:
     def __init__(self, config: GeminiAuthConfig):
         self.config = config
 
-    def get_verification_code(self, email: str, timeout: int = 60) -> Optional[str]:
+    def get_verification_code(self, email: str, timeout: int = 180) -> Optional[str]:
         """获取验证码（公共方法）"""
         logger.info(f"⏳ 等待验证码 [{email}]...")
         start = time.time()
