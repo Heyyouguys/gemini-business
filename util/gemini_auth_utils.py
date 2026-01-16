@@ -239,25 +239,31 @@ class GeminiAuthHelper:
                 time.sleep(1)
                 code_entered = False
 
-                # 方法1: 智能定位验证码输入区域，模拟真人输入行为
+                # 智能定位验证码输入区域，模拟真人输入行为
                 try:
                     from selenium.webdriver.common.action_chains import ActionChains
                     import random as _random
 
-                    # 多种选择器备选，按优先级尝试
+                    # 多种选择器备选，按优先级尝试（覆盖所有可能的验证码输入框）
                     selectors = [
                         "span[data-index='0']",
                         "div[data-index='0']",
                         "input[data-index='0']",
+                        "input[name='pinInput']",
                         "div.nwkWRe span:first-child",
+                        "div.nwkWRe",
                         "div[role='textbox']",
+                        "input[type='tel']",
+                        "input[autocomplete='one-time-code']",
                     ]
 
                     target_element = None
+                    matched_selector = None
                     for sel in selectors:
                         try:
-                            target_element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
+                            target_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, sel)))
                             if target_element.is_displayed():
+                                matched_selector = sel
                                 logger.info(f"📍 找到验证码输入区域: {sel}")
                                 break
                         except:
@@ -266,7 +272,7 @@ class GeminiAuthHelper:
                     if not target_element:
                         raise Exception("未找到验证码输入区域")
 
-                    # 模拟真人：先移动鼠标到元素附近，再点击
+                    # 模拟真人：先移动鼠标到元素附近，随机暂停后点击
                     actions = ActionChains(driver)
                     actions.move_to_element(target_element).pause(_random.uniform(0.1, 0.3)).click().perform()
                     time.sleep(_random.uniform(0.3, 0.6))
@@ -288,98 +294,80 @@ class GeminiAuthHelper:
                         time.sleep(delay)
 
                     code_entered = True
-                    logger.info(f"✅ 验证码输入成功（方法1: 智能定位+真人模拟）")
-                except Exception as e1:
-                    logger.warning(f"⚠️ 方法1失败: {e1}")
-
-                # 方法2: 点击隐藏的 input 元素，然后逐字符发送
-                if not code_entered:
-                    try:
-                        pin = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='pinInput']")))
-                        # 使用 ActionChains 点击并聚焦
-                        from selenium.webdriver.common.action_chains import ActionChains
-                        ActionChains(driver).move_to_element(pin).click().perform()
-                        time.sleep(0.3)
-                        active = driver.switch_to.active_element
-                        for char in code:
-                            active.send_keys(char)
-                            time.sleep(0.05 + 0.05 * __import__('random').random())
-                        code_entered = True
-                        logger.info(f"✅ 验证码输入成功（方法2: input点击+逐字符）")
-                    except Exception as e2:
-                        logger.warning(f"⚠️ 方法2失败: {e2}")
-
-                # 方法3: 点击容器后发送按键
-                if not code_entered:
-                    try:
-                        container = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.nwkWRe")))
-                        container.click()
-                        time.sleep(0.3)
-                        active = driver.switch_to.active_element
-                        for char in code:
-                            active.send_keys(char)
-                            time.sleep(0.05 + 0.05 * __import__('random').random())
-                        code_entered = True
-                        logger.info(f"✅ 验证码输入成功（方法3: 容器点击+逐字符）")
-                    except Exception as e3:
-                        logger.warning(f"⚠️ 方法3失败: {e3}")
+                    logger.info(f"✅ 验证码输入成功（选择器: {matched_selector}）")
+                except Exception as e:
+                    logger.warning(f"⚠️ 验证码输入失败: {e}")
 
                 if not code_entered:
                     last_error = "验证码输入失败: 所有方法均失败"
                     continue  # 重试
 
                 # 5. 点击验证按钮
-                time.sleep(0.5)
+                time.sleep(_random.uniform(0.3, 0.6))
                 verify_clicked = False
 
-                # 方法1: 使用 XPath 找验证按钮
+                # 智能定位验证按钮，模拟真人点击
                 try:
-                    vbtn = wait.until(EC.element_to_be_clickable((By.XPATH, self.XPATH["verify_btn"])))
-                    from selenium.webdriver.common.action_chains import ActionChains
-                    ActionChains(driver).move_to_element(vbtn).click().perform()
-                    verify_clicked = True
-                    logger.info("✅ 点击验证按钮成功（方法1: XPath）")
-                except Exception as e1:
-                    logger.warning(f"⚠️ 验证按钮方法1失败: {e1}")
+                    # 多种定位方式按优先级尝试
+                    btn_selectors = [
+                        (By.XPATH, self.XPATH["verify_btn"]),
+                        (By.CSS_SELECTOR, "button[type='submit']"),
+                        (By.CSS_SELECTOR, "button.submit-btn"),
+                        (By.CSS_SELECTOR, "button[data-action='verify']"),
+                    ]
 
-                # 方法2: 查找包含"验证"文字的按钮
-                if not verify_clicked:
-                    try:
-                        from selenium.webdriver.common.action_chains import ActionChains
-                        for btn in driver.find_elements(By.TAG_NAME, "button"):
-                            btn_text = btn.text.lower()
-                            if '验证' in btn_text or 'verify' in btn_text:
-                                ActionChains(driver).move_to_element(btn).click().perform()
-                                verify_clicked = True
-                                logger.info(f"✅ 点击验证按钮成功（方法2: 文字匹配 '{btn.text}'）")
+                    target_btn = None
+                    matched_method = None
+
+                    # 先尝试选择器定位
+                    for by, selector in btn_selectors:
+                        try:
+                            target_btn = wait.until(EC.element_to_be_clickable((by, selector)))
+                            if target_btn.is_displayed():
+                                matched_method = f"{by}={selector}"
                                 break
-                    except Exception as e2:
-                        logger.warning(f"⚠️ 验证按钮方法2失败: {e2}")
+                        except:
+                            continue
 
-                # 方法3: 查找 type=submit 的按钮
-                if not verify_clicked:
-                    try:
-                        submit_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
-                        from selenium.webdriver.common.action_chains import ActionChains
-                        ActionChains(driver).move_to_element(submit_btn).click().perform()
+                    # 如果选择器都失败，尝试文字匹配
+                    if not target_btn:
+                        for btn in driver.find_elements(By.TAG_NAME, "button"):
+                            try:
+                                btn_text = btn.text.lower()
+                                if btn.is_displayed() and ('验证' in btn_text or 'verify' in btn_text or 'submit' in btn_text):
+                                    target_btn = btn
+                                    matched_method = f"文字匹配: {btn.text}"
+                                    break
+                            except:
+                                continue
+
+                    # 如果找到按钮，模拟真人点击
+                    if target_btn:
+                        actions = ActionChains(driver)
+                        actions.move_to_element(target_btn).pause(_random.uniform(0.1, 0.3)).click().perform()
                         verify_clicked = True
-                        logger.info("✅ 点击验证按钮成功（方法3: submit按钮）")
-                    except Exception as e3:
-                        logger.warning(f"⚠️ 验证按钮方法3失败: {e3}")
+                        logger.info(f"✅ 点击验证按钮成功（{matched_method}）")
+                    else:
+                        # 兜底：发送回车键
+                        from selenium.webdriver.common.keys import Keys
+                        driver.switch_to.active_element.send_keys(Keys.ENTER)
+                        verify_clicked = True
+                        logger.info("✅ 点击验证按钮成功（回车键兜底）")
 
-                # 方法4: 模拟回车键提交
-                if not verify_clicked:
+                except Exception as e:
+                    logger.warning(f"⚠️ 验证按钮点击失败: {e}")
+                    # 最后尝试回车键
                     try:
                         from selenium.webdriver.common.keys import Keys
                         driver.switch_to.active_element.send_keys(Keys.ENTER)
                         verify_clicked = True
-                        logger.info("✅ 点击验证按钮成功（方法4: 回车键）")
-                    except Exception as e4:
-                        logger.warning(f"⚠️ 验证按钮方法4失败: {e4}")
+                        logger.info("✅ 点击验证按钮成功（异常后回车键兜底）")
+                    except:
+                        pass
 
                 if not verify_clicked:
                     last_error = "验证按钮点击失败"
-                    logger.error("❌ 所有验证按钮点击方法均失败")
+                    logger.error("❌ 验证按钮点击失败")
                     continue  # 重试
 
                 # 等待页面跳转
