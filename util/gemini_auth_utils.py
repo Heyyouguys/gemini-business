@@ -239,17 +239,56 @@ class GeminiAuthHelper:
                 time.sleep(1)
                 code_entered = False
 
-                # 方法1: 点击第一个 span 激活输入框，然后逐字符发送验证码（模拟真实输入）
+                # 方法1: 智能定位验证码输入区域，模拟真人输入行为
                 try:
-                    span = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "span[data-index='0']")))
-                    span.click()
-                    time.sleep(0.3)
+                    from selenium.webdriver.common.action_chains import ActionChains
+                    import random as _random
+
+                    # 多种选择器备选，按优先级尝试
+                    selectors = [
+                        "span[data-index='0']",
+                        "div[data-index='0']",
+                        "input[data-index='0']",
+                        "div.nwkWRe span:first-child",
+                        "div[role='textbox']",
+                    ]
+
+                    target_element = None
+                    for sel in selectors:
+                        try:
+                            target_element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, sel)))
+                            if target_element.is_displayed():
+                                logger.info(f"📍 找到验证码输入区域: {sel}")
+                                break
+                        except:
+                            continue
+
+                    if not target_element:
+                        raise Exception("未找到验证码输入区域")
+
+                    # 模拟真人：先移动鼠标到元素附近，再点击
+                    actions = ActionChains(driver)
+                    actions.move_to_element(target_element).pause(_random.uniform(0.1, 0.3)).click().perform()
+                    time.sleep(_random.uniform(0.3, 0.6))
+
+                    # 获取当前焦点元素
                     active = driver.switch_to.active_element
-                    for char in code:
+
+                    # 模拟真人打字：随机延迟 + 偶尔停顿
+                    for i, char in enumerate(code):
                         active.send_keys(char)
-                        time.sleep(0.05 + 0.05 * __import__('random').random())  # 随机延迟 50-100ms
+
+                        # 基础延迟 80-180ms（更接近真人打字速度）
+                        delay = _random.uniform(0.08, 0.18)
+
+                        # 5% 概率额外停顿（模拟思考或看屏幕）
+                        if _random.random() < 0.05:
+                            delay += _random.uniform(0.2, 0.5)
+
+                        time.sleep(delay)
+
                     code_entered = True
-                    logger.info(f"✅ 验证码输入成功（方法1: span点击+逐字符）")
+                    logger.info(f"✅ 验证码输入成功（方法1: 智能定位+真人模拟）")
                 except Exception as e1:
                     logger.warning(f"⚠️ 方法1失败: {e1}")
 
